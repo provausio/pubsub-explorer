@@ -1,0 +1,20 @@
+<AppInstaller
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
+    Version="0.1.1.0"
+    Uri="https://provausio.github.io/pubsub-explorer/releases/Explorer.appinstaller">
+  
+    <MainPackage
+        Name="PubsubExplorer"
+        Publisher="CN=provausio"
+        Version="0.1.1.0"
+        Uri="https://github.com/provausio/pubsub-explorer/releases/download/v0.1.1/PubsubExplorer_0.1.1.0_x86_Debug.msix"/>
+    
+    <UpdateSettings>
+        <OnLaunch
+            HoursBetweenUpdateChecks="0" />
+    </UpdateSettings>
+
+    <AutoUpdate>
+        <UpdateOnLaunch />
+    </AutoUpdate>
+</AppInstaller>
