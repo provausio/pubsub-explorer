@@ -1,0 +1,1 @@
+C:\source\provausio\pubsub-explorer\src\PubsubExplorer\bin\Debug\net8.0-windows10.0.19041.0\win10-x64\AppPackages\PubsubExplorer_0.1.0.0_Debug_Test\PubsubExplorer_0.1.0.0_x86_Debug.msix
