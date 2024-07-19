@@ -1,0 +1,59 @@
+﻿<style>
+    .nav-menu {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .nav-items {
+        flex-grow: 1;
+    }
+
+    .nav-bottom {
+        /* This ensures the button is pinned to the bottom */
+        display: flex;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .pinned-button {
+        width: 100%;
+    }
+</style>
+
+<MudNavMenu Class="d-flex flex-column pt-8" Style="height: 100vh;">    
+    <div class="flex-grow-1">
+        
+        <MudNavLink Href="/publisher">
+            Publish Messages
+        </MudNavLink>
+
+        <MudNavLink Href="/subscriptions/tail">
+            Tail a Topic
+        </MudNavLink>
+
+        <MudNavLink Href="/deadletter">
+            Dead Letter
+        </MudNavLink>
+    </div>    
+    <div class="d-flex justify-center py-2">
+        <MudTooltip Text="Opens a new instance of the tool">
+            <MudButton StartIcon="@Icons.Material.Filled.AddCircle"
+                       OnClick="SpawnInstance">
+                New Instance
+            </MudButton>
+        </MudTooltip>
+    </div>
+</MudNavMenu>
+
+@code {
+    private void SpawnInstance()
+    {
+        var publisherWindow = new Window
+            {
+                Page = new MainPage("/")
+            };
+
+        Application.Current?.OpenWindow(publisherWindow);
+    }
+}

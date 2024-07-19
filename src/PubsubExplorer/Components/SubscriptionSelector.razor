@@ -1,0 +1,133 @@
+﻿@typeparam T where T : SubscriptionSelectionModel
+
+@using Infrastructure.Google.PubSub;
+@using System.Diagnostics.CodeAnalysis
+@using System.Text.RegularExpressions
+@using PubsubExplorer.Ext
+
+@if(Model is not null)
+{
+    <MudStack Row="true" Spacing="2">
+        <TopicSelector Model="Model"
+                       TopicFilter="@TopicFilter"
+                       OnTopicChanged="ClearSubscriptions" />
+
+        <MudAutocomplete T="string" @ref="_subscriptionSelect"
+                         Label="Subscriptions"
+                         Variant="Variant.Outlined"
+                         SearchFunc="@SearchSubscriptions"
+                         Strict="true"
+                         ShowProgressIndicator="true"
+                         Disabled="Disabled"
+                         @bind-Value="Model.SelectedSubscription"
+                         @bind-Value:after="UpdateModel">
+
+            <BeforeItemsTemplate>
+                @if (SubscriptionBeforeItems != null && Model.CanUsePublisherApi)
+                {
+                    @SubscriptionBeforeItems(Model)
+                }
+            </BeforeItemsTemplate>
+
+            <ItemTemplate>
+                    <MudText>
+                        <div class="d-flex flex-row align-content-center">
+                            @if (HighlightItemCondition != null && HighlightItemCondition(context))
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Star" Class="mb-n1 mr-3" />
+                            }                            
+                            @context
+                        </div>
+                    </MudText>
+            </ItemTemplate>
+
+            <NoItemsTemplate>
+                @if (SubscriptionBeforeItems != null && Model.CanUsePublisherApi)
+                {
+                    @SubscriptionBeforeItems(Model)
+                }
+                <MudText Align="Align.Center" class="px-4 py-1">
+                    No subscriptions found
+                </MudText>
+            </NoItemsTemplate>
+
+        </MudAutocomplete>
+    </MudStack>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public T? Model { get; set; }
+
+    [Parameter]
+    public EventCallback<T> ModelChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnSubscriptionCleared { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter, StringSyntax("Regex")]
+    public string? TopicFilter { get; set; }
+
+    [Parameter]
+    public RenderFragment<T>? SubscriptionBeforeItems { get; set; }
+
+    [Parameter]
+    public Func<string, bool>? HighlightItemCondition { get; set; }
+
+    private MudAutocomplete<string>? _subscriptionSelect;
+    private PubSub _pubsub = new();
+
+
+    private async Task ClearSubscriptions()
+    {
+        if (Model is null)
+            return;
+
+        Model.AvailableSubscriptions.Clear();
+        Model.SelectedSubscription = null;
+
+        await (_subscriptionSelect?.ClearAsync() ?? Task.CompletedTask);
+        await UpdateModel();
+
+        await OnSubscriptionCleared.InvokeAsync();
+    }
+
+    private async Task LoadSubscriptions()
+    {
+        if (Model is null || !Model.CanUsePublisherApi)
+            return;
+
+        await ClearSubscriptions();
+
+        var subs = await _pubsub.GetTopicSubscriptions(
+                Model.SelectedProject,
+                Model.SelectedTopic);
+
+        Model.AvailableSubscriptions = subs
+            .Select(s => s.SubscriptionId)
+            .OrderBy(s => s)
+            .ToList();
+
+        await UpdateModel();
+    }
+
+    private async Task<IEnumerable<string>> SearchSubscriptions(string? value, CancellationToken cancel)
+    {
+        if (Model is null)
+            return [];
+
+        if (Model.AvailableSubscriptions.Count < 1)
+            await LoadSubscriptions();
+
+        if (value is null)
+            return Model.AvailableSubscriptions;
+
+        return Model.AvailableSubscriptions
+            .Where(s => s.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }    
+
+    private async Task UpdateModel() => await ModelChanged.InvokeAsync(Model);
+}

@@ -1,0 +1,358 @@
+﻿@page "/deadletter"
+
+@inherits PageBase
+@using PubsubExplorer.Infrastructure.Google.PubSub
+
+<MudStack Spacing="4">
+    <SubscriptionSelector TopicFilter="^.*\.dl.*"
+                          OnSubscriptionCleared="_model.MessagePage.Clear"
+                          @bind-Model="_model" />
+
+    <MudField Variant="Variant.Outlined" Label="Options">
+        <div class="d-flex flex-row" style="gap: 16px;">
+
+            <MudTextField Label="Filter Body"
+                          HelperText="JsonPath"
+                          HelperTextOnFocus="true"
+                          Immediate="true"
+                          DebounceInterval="250"
+                          @bind-Value="@_model.JsonPathFilter"
+                          @bind-Value:after="SearchMessageBodies"
+                          AutoGrow />
+
+            <MudNumericField Label="Message Count"
+                             Style="max-width: 100px;"
+                             @bind-Value="_model.MessagePullCount" />
+
+        </div>
+
+        <div style="display: flex; justify-content: center;">
+            <MudButtonGroup DropShadow="false" Variant="Variant.Filled" Size="Size.Small">
+                <MudButton OnClick="LoadMessages"
+                           Disabled="@(!_model.CanUseSubscriptionApi || _isPullingMessages)">
+
+                    @if (_isPullingMessages)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                        <div class="ms-2">@("Pulling...")</div>
+                    }
+                    else
+                    {
+                        @("Pull Messages")
+                    }
+
+                </MudButton>
+
+                <MudButton Disabled="@(!_model.HasSelection)"
+                           OnClick="@(() => ReleaseAll(ReleaseScope.Selected))">
+                    Release Selected
+                </MudButton>
+
+                <MudButton Disabled="@(!_model.MessagePage.Any())"
+                           OnClick="@(() => ReleaseAll(ReleaseScope.All))">
+                    Release All
+                </MudButton>
+
+                <MudButton Disabled=@(!_model.FilteredMessagePage.Any())
+                           OnClick="@(() => ReleaseAll(ReleaseScope.Shown))">
+                    Release Shown
+                </MudButton>
+
+                <MudButton Disabled="@(!_model.MessagePage.Any())"
+                           OnClick="InvertAllBookmarks">
+                    Invert Selection
+                </MudButton>
+
+            </MudButtonGroup>
+
+            <MudSpacer />
+
+            <MudToggleGroup @bind-Values="_model.Options" SelectionMode="SelectionMode.MultiSelection" CheckMark>
+                <MudToggleItem Value="@(MessageOptions.AutoRenewLease)" Text="Auto-renew" />
+                <MudToggleItem Value="@(MessageOptions.RequireConfirmations)" Text="Confirmations" />
+            </MudToggleGroup>
+        </div>
+    </MudField>
+
+    @if (LoadingStatus is not null)
+    {
+        <MudText>@LoadingStatus</MudText>
+    }
+    else if (_model.FilteredMessagePage.Any())
+    {
+        <MessageBrowser Model="_model">
+            <BeforeTabs>
+                <div class="d-flex flex-row align-content-center">
+                    @if (context.SelectedMessage is not null)
+                    {
+                        <MudButtonGroup Class="my-2"
+                                        Variant="Variant.Filled"
+                                        DropShadow="false"
+                                        Size="Size.Small">
+
+                            <MudButton Disabled="@(!context.SelectedMessage?.CanReplay ?? true)"
+                                       OnClick="@(() => ReplayMessage(_model.SelectedMessage))">
+                                Replay
+                            </MudButton>
+
+                            <MudButton Disabled=@(context.SelectedMessage?.RemainingLeaseSeconds < 2)
+                                       OnClick="@(() => ReleaseMessage(_model.SelectedMessage))">
+                                Release
+                            </MudButton>
+
+                            <MudButton Disabled=@(context.SelectedMessage?.RemainingLeaseSeconds <= 0)
+                                       OnClick="@(() => AckMessage(_model.SelectedMessage))">
+                                Delete
+                            </MudButton>
+
+                            <MudButton Disabled="true">
+                                @if (context.SelectedMessage?.RemainingLeaseSeconds > 0)
+                                {
+                                    @($"({context.SelectedMessage?.RemainingLeaseSeconds})")
+                                }
+                                else
+                                {
+                                    @("Lease Expired")
+                                }
+                            </MudButton>
+                        </MudButtonGroup>
+                        <MudSpacer />
+                        <MudCheckBox @bind-Value="context.SelectedMessage.Bookmarked" />
+                    }
+                </div>
+            </BeforeTabs>
+        </MessageBrowser>
+    }
+</MudStack>
+
+
+ 
+@code {
+
+    private PubSub _pubsub = new();
+    private DeadLetterViewModel _model = new();
+
+    private MudAutocomplete<string>? _subscriptionSelect;
+    private MudAutocomplete<string>? _topicSelect;
+
+    private bool _isPullingMessages;
+    private bool _isPullingTopics;
+    private bool _isPullingSubscriptions;
+
+    private Timer? _updateTimer;
+
+
+    private async Task LoadMessages()
+    {
+        _isPullingMessages = true;
+
+        try
+        {
+            if (_model.SelectedProject is null || _model.SelectedSubscription is null)
+                return;
+
+            await ReleaseAll(ReleaseScope.All);
+
+            _model.MessagePage.Clear();
+
+            var messages = await _pubsub!.PullMessages(
+                _model.SelectedProject,
+                _model.SelectedSubscription, 
+                _model.MessagePullCount, 
+                _model.LeaseDurationSeconds);
+
+            _model.SetMessagePage(messages
+                .Select(m => MessageViewModel.FromPubsub(m.Message, m.AckId, m.LeaseExpires))
+                .ToList());
+
+            SearchMessageBodies();
+
+            await (_updateTimer?.DisposeAsync() ?? ValueTask.CompletedTask);
+            _updateTimer = new Timer(UpdateLeaseTracking, null, 0, 1000);
+        }
+        finally
+        {
+            _isPullingMessages = false;
+        }
+    }
+
+    private async Task DeleteBookmarked()
+    {
+        using var _ = await StartLoading("Acking messages...");
+        if (!_model.CanUseSubscriptionApi || !_model.BookmarkedMessages.Any())
+            return;
+
+        var ackIds = _model.BookmarkedMessages.Select(m => m.AckId);
+        await _pubsub.AcknowledgeMessages(
+            _model.SelectedProject,
+            _model.SelectedSubscription!, 
+            ackIds);
+    }
+
+    private async void UpdateLeaseTracking(object? state = null)
+    {
+        if (_updateTimer is null)
+            return;        
+
+        const int extensionTime = 30;
+        if(_model.Options.Contains(MessageOptions.AutoRenewLease) && _model.MessagePage.Any(m => m.RemainingLeaseSeconds < 5))
+        {
+            await ExtendActiveMessages(extensionTime);
+            var newExpiration = DateTimeOffset.UtcNow.AddSeconds(extensionTime);
+            foreach(var message in _model.MessagePage)
+            {
+                message.SetExpiration(newExpiration);
+            }
+        }
+
+        foreach (var message in _model.MessagePage)
+        {
+            message.UpdateLeaseCountdown();
+        }
+
+        InvokeAsync(StateHasChanged).Wait();
+
+        if (_model.MessagePage.Any(m => m.RemainingLeaseSeconds != 0)) 
+            return;
+
+        _updateTimer?.Dispose();
+        _updateTimer = null;
+    }
+
+    private async Task ExtendActiveMessages(int newDeadline)
+    {
+        if (!_model.CanUseSubscriptionApi)
+            return;
+
+        var ackIds = _model.MessagePage.Select(m => m.AckId);
+        await _pubsub.ModifyDeadline(
+            _model.SelectedProject, 
+            _model.SelectedSubscription, 
+            ackIds, 
+            newDeadline);
+    }
+
+
+    private void SearchMessageBodies()
+    {
+        _model.FilterMessages();
+        StateHasChanged();
+    }
+
+    private void InvertAllBookmarks()
+    {
+        _model.MessagePage.ForEach(m => m.Bookmarked = !m.Bookmarked);
+        StateHasChanged();
+    }
+
+    private async Task ReleaseMessage(MessageViewModel? message)
+    {
+        if (message is null || !_model.CanUseSubscriptionApi)
+            return;
+
+        if (_model.Options.Contains(MessageOptions.RequireConfirmations))
+        {
+            var result = await DialogService.ShowMessageBox(
+                "Confirmation",
+                $"Return this to the subscription '{_model.SelectedSubscription}'?",
+                yesText: "Remove",
+                noText: "Cancel"
+            );
+
+            if (result is null or false)
+                return;
+        }
+
+        await _pubsub.NackMessages(
+            _model.SelectedProject,
+            _model.SelectedSubscription,
+            [message.AckId]);
+
+        RemoveMessagesFromUI([message]);
+    }
+
+    private async Task ReleaseAll(ReleaseScope scope)
+    {
+        if (!_model.CanUseSubscriptionApi)
+            return;
+
+        var messagesToNack = scope switch
+        {
+            ReleaseScope.All => _model.MessagePage,
+            ReleaseScope.Selected => _model.FilteredMessagePage.Where(m => m.Bookmarked),
+            ReleaseScope.Shown => _model.FilteredMessagePage,
+            _ => []
+        };
+
+        await _pubsub.NackMessages(
+            _model.SelectedProject, 
+            _model.SelectedSubscription, 
+            messagesToNack.Select(m => m.AckId));
+
+        RemoveMessagesFromUI(messagesToNack);
+    }
+
+    private async Task AckMessage(MessageViewModel? message)
+    {
+        if (message is null || !_model.CanUseSubscriptionApi)
+            return;
+
+        if (_model.Options.Contains(MessageOptions.RequireConfirmations))
+        {
+            var result = await DialogService.ShowMessageBox(
+                "Confirmation",
+                "This will acknowledge the active message, effectively removing it from the subscription. Are you sure?",
+                yesText: "Remove",
+                noText: "Cancel"
+            );
+
+            if (result is null or false)
+                return;
+        }
+
+        await _pubsub.AcknowledgeMessages(
+            _model.SelectedProject, 
+            _model.SelectedSubscription, 
+            [message.AckId]);
+
+        RemoveMessagesFromUI([message]);
+    }
+
+    private async Task ReplayMessage(MessageViewModel? message)
+    {
+        if (message is null || !_model.CanUsePublisherApi || !_model.CanUseSubscriptionApi)
+            return;
+
+        await Try(async () =>
+        {
+            await _pubsub.PublishMessage(message.Message, message.ReturnTo!);
+            await _pubsub.AcknowledgeMessages(
+                _model.SelectedProject, 
+                _model.SelectedSubscription, 
+                [message.AckId]);
+        });
+
+        RemoveMessagesFromUI([message]);
+    }
+
+    private void RemoveMessagesFromUI(IEnumerable<MessageViewModel> messages)
+    {
+        var messagesToRemove = messages.Select(m => m.AckId);
+        _model.MessagePage.RemoveAll(m => messagesToRemove.Contains(m.AckId));
+        _model.FilterMessages();
+        StateHasChanged();
+    }
+
+    public override void Dispose()
+    {
+        _updateTimer?.DisposeAsync();
+        base.Dispose();
+    }
+
+    private enum ReleaseScope
+    {
+        All,
+        Shown,
+        Selected
+    }
+}

@@ -1,0 +1,58 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+
+@inject IPageLoadingControl PageLoading;
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar>
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" 
+                       Color="Color.Inherit" E
+                       dge="Edge.Start" 
+                       OnClick="@((e) => DrawerToggle())" />
+
+        PetSmart Pubsub Explorer
+
+    </MudAppBar>
+
+    <MudDrawer Open="_drawerOpen" ClipMode="DrawerClipMode.Always">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent>
+        @if (PageLoading.HasActivity)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+
+        <MudContainer Class="d-flex flex-column mt-4" Style="margin: 0;" MaxWidth="MaxWidth.False">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+
+    protected override void OnInitialized()
+    {
+        PageLoading.OnChange += UpdatePage;
+    }
+
+    bool _drawerOpen = true;
+
+    void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    public void Dispose()
+    {
+        PageLoading.OnChange -= UpdatePage;
+    }
+
+    void UpdatePage(object? sender, EventArgs args) => InvokeAsync(StateHasChanged);
+}

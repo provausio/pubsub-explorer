@@ -1,0 +1,24 @@
+﻿@inject NavigationManager Nav
+
+<Router AppAssembly="@typeof(MauiProgram).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>
+
+
+@code{
+    [Parameter]
+    public string? StartPath { get; set;}
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(StartPath))
+        {
+            Nav.NavigateTo(StartPath);
+        }
+
+        base.OnParametersSet();
+    }
+}
