@@ -1,1 +1,0 @@
-C:\source\provausio\pubsub-explorer\src\PubsubExplorer\PubsubExplorer.csproj;x64
