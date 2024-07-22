@@ -12,7 +12,10 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
 
 
-        builder.Services.AddMudServices();
+        builder.Services.AddMudServices(config =>
+        {
+
+        });
         builder.Services.AddMudExtensions();
         builder.Services.AddSingleton<IPageLoadingControl, PageLoadingControl>();
 

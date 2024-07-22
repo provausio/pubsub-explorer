@@ -3,7 +3,7 @@
 
 @inject IPageLoadingControl PageLoading;
 
-<MudThemeProvider />
+<MudThemeProvider Theme="Theme.Default" IsDarkMode="false" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -11,8 +11,7 @@
 <MudLayout>
     <MudAppBar>
         <MudIconButton Icon="@Icons.Material.Filled.Menu" 
-                       Color="Color.Inherit" E
-                       dge="Edge.Start" 
+                       Color="Color.Inherit" Edge="Edge.Start" 
                        OnClick="@((e) => DrawerToggle())" />
 
         PetSmart Pubsub Explorer
